@@ -58,7 +58,7 @@ class GeoMap:
 
     @staticmethod
     def get_random_points(id, n):
-        json_file = JSONFile(os.path.join('data', f'random_points.{id}.json'))
+        json_file = JSONFile(os.path.join('temp-data', f'random_points.{id}.json'))
         if json_file.exists:
             return json_file.read()
         random_points = GeoMap.get_random_points_nocache(id, n)
@@ -116,7 +116,9 @@ class GeoMap:
         for spine in ax.spines.values():
             spine.set_visible(False)
 
-        image_path = f'geomap.{self.file_label}.png'
+        image_path = os.path.join(
+            'temp-images', f'geomap.{self.file_label}.png'
+        )
         plt.savefig(image_path, dpi=300)
         log.info(f'Wrote {image_path}')
         os.startfile(image_path)
