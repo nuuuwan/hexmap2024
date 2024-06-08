@@ -10,6 +10,9 @@ from utils import Hash, JSONFile, Log
 
 log = Log('GeoMap')
 
+random.seed(0)
+UNITS_PER_N = 1000
+
 
 class GeoMap:
     BACKGROUND_COLOR = '#004'
@@ -58,7 +61,9 @@ class GeoMap:
 
     @staticmethod
     def get_random_points(id, n):
-        json_file = JSONFile(os.path.join('temp-data', f'random_points.{id}.json'))
+        json_file = JSONFile(
+            os.path.join('data', f'random_points.{n}.{id}.json')
+        )
         if json_file.exists:
             return json_file.read()
         random_points = GeoMap.get_random_points_nocache(id, n)
@@ -91,24 +96,32 @@ class GeoMap:
     def file_label(self):
         return Hash.md5(str(self.info_list))[:8]
 
-    def draw(self):
+    @staticmethod
+    def draw_region(ax, n_info, i_info, info):
+        id = info['id']
+        n = info['n']
+        description = f'{i_info}/{n_info}) {id}: {n}'
+        print(description, end='\r')
+
+        try:
+            geo = GeoMap.get_geo(id)
+            geo.plot(ax=ax, color=GeoMap.BACKGROUND_COLOR)
+
+            for point in GeoMap.get_random_points(id, n):
+                circle = plt.Circle(point, 0.005, facecolor=info['color'])
+                ax.add_patch(circle)
+        except Exception as e:
+            log.error(f'Error drawing {id}: {e}')
+
+    def draw(self, image_label, title):
         fig, ax = plt.subplots()
         fig.set_size_inches(12, 12)
         ax.set_facecolor(self.BACKGROUND_COLOR)
 
-        for info in self.info_list:
-            id = info['id']
-            n = info['n']
-            log.debug(f'{id}: {n}')
-            try:
-                geo = GeoMap.get_geo(id)
-                geo.plot(ax=ax, color=self.BACKGROUND_COLOR)
+        n_info = len(self.info_list)
 
-                for point in GeoMap.get_random_points(id, n):
-                    circle = plt.Circle(point, 0.005, facecolor=info['color'])
-                    ax.add_patch(circle)
-            except Exception as e:
-                log.error(f'Error drawing {id}: {e}')
+        for i_info, info in enumerate(self.info_list, start=1):
+            GeoMap.draw_region(ax, n_info, i_info, info)
 
         ax.set_xticks([])
         ax.set_yticks([])
@@ -116,26 +129,71 @@ class GeoMap:
         for spine in ax.spines.values():
             spine.set_visible(False)
 
-        image_path = os.path.join(
-            'temp-images', f'geomap.{self.file_label}.png'
-        )
-        plt.savefig(image_path, dpi=300)
+        plt.title(title)
+
+        image_path = os.path.join('images', f'geomap.{image_label}.png')
+        plt.savefig(image_path, dpi=300, bbox_inches='tight')
         log.info(f'Wrote {image_path}')
         os.startfile(image_path)
 
 
-def main():
-    regions = Ent.list_from_type(EntType.DSD)
+def draw_for_region(ent_type):
+    log.debug(f'draw_for_region: {ent_type}')
+
+    regions = Ent.list_from_type(ent_type)
+    print(regions[0])
     info_list = [
         dict(
             id=region.id,
-            n=int(round(region.population / 1_000, 0)),
+            n=int(round(region.population / UNITS_PER_N, 0)),
             color='#fff',
         )
         for region in regions
     ]
     gm = GeoMap(info_list)
-    gm.draw()
+    image_label = ent_type.name
+    title = f'Sri Lanka by {image_label.upper()} (dot = {UNITS_PER_N} people)'
+    gm.draw(image_label, title)
+
+
+def get_mean_n(id, density):
+    multi_polygon = GeoMap.get_multi_polygon(id)
+    polygons = list(multi_polygon.geoms)
+    total_area = sum([polygon.area for polygon in polygons])
+    mean_population = density * total_area
+    n = int(round(mean_population / UNITS_PER_N, 0))
+    return n
+
+
+def draw_lk():
+    log.debug('draw_lk')
+
+    regions = Ent.list_from_type(EntType.PROVINCE)
+    country_area = 0
+    for region in regions:
+        country_area += GeoMap.get_multi_polygon(region.id).area
+    country_population = sum([region.population for region in regions])
+    density = country_population / country_area
+    print(f'{country_area=}, {country_population=}, {density=}')
+
+    info_list = [
+        dict(
+            id=region.id,
+            n=get_mean_n(region.id, density),
+            color='#fff',
+        )
+        for region in regions
+    ]
+    gm = GeoMap(info_list)
+    title = f'Sri Lanka (dot = {UNITS_PER_N} people)'
+    gm.draw(f'country', title)
+
+
+def main():
+    draw_lk()
+
+    # for ent_type in [EntType.DSD, EntType.DISTRICT, EntType.PROVINCE]:
+    #     draw_for_region(ent_type)
 
 
 if __name__ == "__main__":
